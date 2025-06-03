@@ -12,6 +12,7 @@
 #include "hardware/gpio.h"              // Biblioteca de hardware de GPIO
 #include "hardware/irq.h"               // Biblioteca de hardware de interrupções
 #include "hardware/adc.h"               // Biblioteca de hardware para conversão ADC
+#include "hardware/pwm.h"               // Biblioteca de hardware para usar o PWM
 
 #include "lwip/apps/mqtt.h"             // Biblioteca LWIP MQTT -  fornece funções e recursos para conexão MQTT
 #include "lwip/apps/mqtt_priv.h"        // Biblioteca que fornece funções e recursos para Geração de Conexões
@@ -21,7 +22,7 @@
 
 #define WIFI_SSID "KASATECH CARVALHO"   // Substitua pelo nome da sua rede Wi-Fi
 #define WIFI_PASSWORD "Ph01felix!"      // Substitua pela senha da sua rede Wi-Fi
-#define MQTT_SERVER "192.168.0.101"     // Substitua pelo endereço do host - broket MQTT: Ex: 192.168.1.107
+#define MQTT_SERVER "192.168.0.101"     // Substitua pelo endereço do host - broket MQTT: Ex: 192.168.0.107
 #define MQTT_USERNAME "admin"           // Substitua pelo nome da host MQTT - Username
 #define MQTT_PASSWORD "123456"          // Substitua pelo Password da host MQTT - credencial de acesso - caso exista
 
@@ -30,6 +31,9 @@
 #define LDR_ADC_PIN 28                  // GPIO28 para o LDR (ADC2)
 #define ADC_INPUT_CHANNEL 2             // ADC2 corresponde à GPIO28
 #define VALOR_LIMIAR_LUZ_BAIXA 1000     // Limiar para considerar ambiente escuro
+
+// Definições para o Buzzer
+#define BUZZER_PIN 10                   // GPIO10 para o buzzer
 
 // Botão B para modo BOOTSEL
 #define BUTTON_B 6
@@ -103,6 +107,12 @@ typedef struct {
 #define MQTT_UNIQUE_TOPIC 0
 #endif
 
+// Funções do Buzzer
+static void buzzer_init(void);
+static void play_sound(int frequency, int duration_ms);
+static void play_manual_mode_beep(void);
+static void play_auto_mode_beep(void);
+
 // Função para ler o valor do LDR
 static uint16_t read_ldr_value(void);
 
@@ -155,6 +165,48 @@ void gpio_irq_handler(uint gpio, uint32_t events)
     reset_usb_boot(0, 0);
 }
 
+// ========== FUNÇÕES DO BUZZER ==========
+
+// Inicializa PWM para o buzzer
+static void buzzer_init(void) {
+    gpio_set_function(BUZZER_PIN, GPIO_FUNC_PWM);
+    uint slice_num = pwm_gpio_to_slice_num(BUZZER_PIN);
+    pwm_config config = pwm_get_default_config();
+    pwm_init(slice_num, &config, true);
+    pwm_set_gpio_level(BUZZER_PIN, 0);
+}
+
+// Toca som no buzzer com frequência e duração em ms
+static void play_sound(int frequency, int duration_ms) {
+    uint slice_num = pwm_gpio_to_slice_num(BUZZER_PIN);
+    if (frequency <= 0) {
+        pwm_set_gpio_level(BUZZER_PIN, 0);
+        sleep_ms(duration_ms);
+        return;
+    }
+    float divider = 20.0f;
+    pwm_set_clkdiv(slice_num, divider);
+    uint16_t wrap = (125000000 / (frequency * divider)) - 1;
+    pwm_set_wrap(slice_num, wrap);
+    pwm_set_gpio_level(BUZZER_PIN, wrap / 2);
+    sleep_ms(duration_ms);
+    pwm_set_gpio_level(BUZZER_PIN, 0);
+}
+
+// Emite um beep para indicar ativação do modo manual
+static void play_manual_mode_beep(void) {
+    INFO_printf("Buzzer: Modo manual ativado (1 beep)\n");
+    play_sound(800, 200);  // 800Hz por 200ms
+}
+
+// Emite dois beeps para indicar retorno ao modo automático
+static void play_auto_mode_beep(void) {
+    INFO_printf("Buzzer: Modo automático ativado (2 beeps)\n");
+    play_sound(1200, 150);  // 1200Hz por 150ms
+    sleep_ms(100);          // Pausa entre beeps
+    play_sound(1200, 150);  // 1200Hz por 150ms
+}
+
 // Função para ler o valor do LDR
 static uint16_t read_ldr_value(void) {
     return adc_read();
@@ -194,6 +246,8 @@ static const char *full_topic(MQTT_CLIENT_DATA_T *state, const char *name) {
 
 // Controle do LED 
 static void control_led(MQTT_CLIENT_DATA_T *state, bool on, bool manual) {
+    bool previous_manual_mode = state->manual_led_control;
+    
     state->led_state = on;
     
     // Controla LED da placa WiFi
@@ -202,9 +256,10 @@ static void control_led(MQTT_CLIENT_DATA_T *state, bool on, bool manual) {
     // Controla LED físico
     gpio_put(LED_PIN, on ? 1 : 0);
     
-    // Atualiza modo de controle
-    if (manual) {
+    // Atualiza modo de controle e emite beep se mudou para manual
+    if (manual && !previous_manual_mode) {
         state->manual_led_control = true;
+        play_manual_mode_beep();  // 1 beep para modo manual
     }
 
     // Publica estado no MQTT
@@ -267,6 +322,7 @@ static void sub_unsub_topics(MQTT_CLIENT_DATA_T* state, bool sub) {
     mqtt_request_cb_t cb = sub ? sub_request_cb : unsub_request_cb;
     mqtt_sub_unsub(state->mqtt_client_inst, full_topic(state, "/led"), MQTT_SUBSCRIBE_QOS, cb, state, sub);
     mqtt_sub_unsub(state->mqtt_client_inst, full_topic(state, "/led/auto"), MQTT_SUBSCRIBE_QOS, cb, state, sub);
+    mqtt_sub_unsub(state->mqtt_client_inst, full_topic(state, "/buzzer"), MQTT_SUBSCRIBE_QOS, cb, state, sub);
     mqtt_sub_unsub(state->mqtt_client_inst, full_topic(state, "/print"), MQTT_SUBSCRIBE_QOS, cb, state, sub);
     mqtt_sub_unsub(state->mqtt_client_inst, full_topic(state, "/ping"), MQTT_SUBSCRIBE_QOS, cb, state, sub);
     mqtt_sub_unsub(state->mqtt_client_inst, full_topic(state, "/exit"), MQTT_SUBSCRIBE_QOS, cb, state, sub);
@@ -295,9 +351,30 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
     } else if (strcmp(basic_topic, "/led/auto") == 0) {
         // Comando para voltar ao modo automático
         if (lwip_stricmp((const char *)state->data, "On") == 0 || strcmp((const char *)state->data, "1") == 0) {
+            bool was_manual = state->manual_led_control;
             state->manual_led_control = false;
+            
+            // Emite 2 beeps apenas se estava em modo manual
+            if (was_manual) {
+                play_auto_mode_beep();  // 2 beeps para modo automático
+            }
+            
             INFO_printf("Switched to automatic mode\n");
             mqtt_publish(state->mqtt_client_inst, full_topic(state, "/led/mode"), "Auto", 4, MQTT_PUBLISH_QOS, MQTT_PUBLISH_RETAIN, pub_request_cb, state);
+        }
+    } else if (strcmp(basic_topic, "/buzzer") == 0) {
+        // Controle direto do buzzer via MQTT
+        // Formato: "frequency,duration" (ex: "1000,500" para 1000Hz por 500ms)
+        char *freq_str = strtok((char*)state->data, ",");
+        char *duration_str = strtok(NULL, ",");
+        
+        if (freq_str && duration_str) {
+            int frequency = atoi(freq_str);
+            int duration = atoi(duration_str);
+            if (frequency >= 0 && duration > 0 && duration <= 5000) { // Limita duração máxima
+                INFO_printf("Playing buzzer: %dHz for %dms\n", frequency, duration);
+                play_sound(frequency, duration);
+            }
         }
     } else if (strcmp(basic_topic, "/print") == 0) {
         INFO_printf("%.*s\n", len, data);
@@ -336,7 +413,12 @@ static void mqtt_connection_cb(mqtt_client_t *client, void *arg, mqtt_connection
             mqtt_publish(state->mqtt_client_inst, state->mqtt_client_info.will_topic, "1", 1, MQTT_WILL_QOS, true, pub_request_cb, state);
         }
 
-        // Publica nível de luminosidade a cada 5 segundos
+        // Beep de conexão MQTT estabelecida
+        play_sound(1500, 100);
+        sleep_ms(50);
+        play_sound(2000, 100);
+
+        // Publica nível de luminosidade a cada 1 segundo
         light_worker.user_data = state;
         async_context_add_at_time_worker_in_ms(cyw43_arch_async_context(), &light_worker, 0);
     } else if (status == MQTT_CONNECT_DISCONNECTED) {
@@ -390,7 +472,7 @@ static void dns_found(const char *hostname, const ip_addr_t *ipaddr, void *arg) 
 int main(void) {
     // Inicializa todos os tipos de bibliotecas stdio padrão presentes que estão ligados ao binário.
     stdio_init_all();
-    INFO_printf("MQTT LDR Smart Lamp client starting\n");
+    INFO_printf("MQTT LDR Smart Lamp client with buzzer starting\n");
 
     // Configuração do botão B para modo BOOTSEL
     gpio_init(BUTTON_B);
@@ -402,6 +484,10 @@ int main(void) {
     gpio_init(LED_PIN);
     gpio_set_dir(LED_PIN, GPIO_OUT);
     gpio_put(LED_PIN, 0); // Inicia desligado
+
+    // Inicializa o buzzer
+    buzzer_init();
+    INFO_printf("Buzzer initialized on GPIO%d\n", BUZZER_PIN);
 
     // Inicializa o conversor ADC para o LDR
     adc_init();
@@ -468,6 +554,11 @@ int main(void) {
         panic("Failed to connect");
     }
     INFO_printf("\nConnected to Wifi\n");
+
+    // Beep de inicialização (sistema pronto)
+    play_sound(1000, 100);
+    sleep_ms(50);
+    play_sound(1500, 100);
 
     //Faz um pedido de DNS para o endereço IP do servidor MQTT
     cyw43_arch_lwip_begin();
