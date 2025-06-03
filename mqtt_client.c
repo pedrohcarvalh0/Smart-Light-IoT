@@ -20,11 +20,11 @@
 #include "lwip/altcp_tls.h"             // Biblioteca que fornece funções e recursos para conexões seguras usando TLS:
 #include "pico/bootrom.h"
 
-#define WIFI_SSID "KASATECH CARVALHO"   // Substitua pelo nome da sua rede Wi-Fi
-#define WIFI_PASSWORD "Ph01felix!"      // Substitua pela senha da sua rede Wi-Fi
-#define MQTT_SERVER "192.168.0.101"     // Substitua pelo endereço do host - broket MQTT: Ex: 192.168.0.107
-#define MQTT_USERNAME "admin"           // Substitua pelo nome da host MQTT - Username
-#define MQTT_PASSWORD "123456"          // Substitua pelo Password da host MQTT - credencial de acesso - caso exista
+#define WIFI_SSID "NOME DA SUA REDE"   // Substitua pelo nome da sua rede Wi-Fi
+#define WIFI_PASSWORD "SENHA DA SUA REDE"      // Substitua pela senha da sua rede Wi-Fi
+#define MQTT_SERVER "ENDEREÇO DO HOST"     // Substitua pelo endereço do host - broket MQTT: Ex: 192.168.0.107
+#define MQTT_USERNAME "USER NAME DO HOST"           // Substitua pelo nome da host MQTT - Username
+#define MQTT_PASSWORD "PASSWORD DO HOST"          // Substitua pelo Password da host MQTT - credencial de acesso - caso exista
 
 // Definições para o LDR
 #define LED_PIN 11                      // GPIO11 para o LED Verde (LED físico)
