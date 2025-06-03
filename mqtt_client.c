@@ -155,110 +155,6 @@ void gpio_irq_handler(uint gpio, uint32_t events)
     reset_usb_boot(0, 0);
 }
 
-int main(void) {
-    // Inicializa todos os tipos de bibliotecas stdio padrão presentes que estão ligados ao binário.
-    stdio_init_all();
-    INFO_printf("MQTT LDR Smart Lamp client starting\n");
-
-    // Configuração do botão B para modo BOOTSEL
-    gpio_init(BUTTON_B);
-    gpio_set_dir(BUTTON_B, GPIO_IN);
-    gpio_pull_up(BUTTON_B);
-    gpio_set_irq_enabled_with_callback(BUTTON_B, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
-
-    // Inicializa o pino do LED físico
-    gpio_init(LED_PIN);
-    gpio_set_dir(LED_PIN, GPIO_OUT);
-    gpio_put(LED_PIN, 0); // Inicia desligado
-
-    // Inicializa o conversor ADC para o LDR
-    adc_init();
-    adc_gpio_init(LDR_ADC_PIN);
-    adc_select_input(ADC_INPUT_CHANNEL);
-
-    // Cria registro com os dados do cliente
-    static MQTT_CLIENT_DATA_T state;
-    state.manual_led_control = false;
-    state.led_state = false;
-
-    // Inicializa a arquitetura do cyw43
-    if (cyw43_arch_init()) {
-        panic("Failed to inizialize CYW43");
-    }
-
-    // Usa identificador único da placa
-    char unique_id_buf[5];
-    pico_get_unique_board_id_string(unique_id_buf, sizeof(unique_id_buf));
-    for(int i=0; i < sizeof(unique_id_buf) - 1; i++) {
-        unique_id_buf[i] = tolower(unique_id_buf[i]);
-    }
-
-    // Gera nome único, Ex: pico1234
-    char client_id_buf[sizeof(MQTT_DEVICE_NAME) + sizeof(unique_id_buf) - 1];
-    memcpy(&client_id_buf[0], MQTT_DEVICE_NAME, sizeof(MQTT_DEVICE_NAME) - 1);
-    memcpy(&client_id_buf[sizeof(MQTT_DEVICE_NAME) - 1], unique_id_buf, sizeof(unique_id_buf) - 1);
-    client_id_buf[sizeof(client_id_buf) - 1] = 0;
-    INFO_printf("Device name %s\n", client_id_buf);
-
-    state.mqtt_client_info.client_id = client_id_buf;
-    state.mqtt_client_info.keep_alive = MQTT_KEEP_ALIVE_S;
-#if defined(MQTT_USERNAME) && defined(MQTT_PASSWORD)
-    state.mqtt_client_info.client_user = MQTT_USERNAME;
-    state.mqtt_client_info.client_pass = MQTT_PASSWORD;
-#else
-    state.mqtt_client_info.client_user = NULL;
-    state.mqtt_client_info.client_pass = NULL;
-#endif
-    static char will_topic[MQTT_TOPIC_LEN];
-    strncpy(will_topic, full_topic(&state, MQTT_WILL_TOPIC), sizeof(will_topic));
-    state.mqtt_client_info.will_topic = will_topic;
-    state.mqtt_client_info.will_msg = MQTT_WILL_MSG;
-    state.mqtt_client_info.will_qos = MQTT_WILL_QOS;
-    state.mqtt_client_info.will_retain = true;
-
-#if LWIP_ALTCP && LWIP_ALTCP_TLS
-    // TLS enabled
-#ifdef MQTT_CERT_INC
-    static const uint8_t ca_cert[] = TLS_ROOT_CERT;
-    static const uint8_t client_key[] = TLS_CLIENT_KEY;
-    static const uint8_t client_cert[] = TLS_CLIENT_CERT;
-    state.mqtt_client_info.tls_config = altcp_tls_create_config_client_2wayauth(ca_cert, sizeof(ca_cert),
-            client_key, sizeof(client_key), NULL, 0, client_cert, sizeof(client_cert));
-#else
-    state.mqtt_client_info.tls_config = altcp_tls_create_config_client(NULL, 0);
-    WARN_printf("Warning: tls without a certificate is insecure\n");
-#endif
-#endif
-
-    // Conectar à rede WiFI
-    cyw43_arch_enable_sta_mode();
-    if (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK, 30000)) {
-        panic("Failed to connect");
-    }
-    INFO_printf("\nConnected to Wifi\n");
-
-    //Faz um pedido de DNS para o endereço IP do servidor MQTT
-    cyw43_arch_lwip_begin();
-    int err = dns_gethostbyname(MQTT_SERVER, &state.mqtt_server_address, dns_found, &state);
-    cyw43_arch_lwip_end();
-
-    // Se tiver o endereço, inicia o cliente
-    if (err == ERR_OK) {
-        start_client(&state);
-    } else if (err != ERR_INPROGRESS) {
-        panic("dns request failed");
-    }
-
-    // Loop condicionado a conexão mqtt
-    while (!state.connect_done || mqtt_client_is_connected(state.mqtt_client_inst)) {
-        cyw43_arch_poll();
-        cyw43_arch_wait_for_work_until(make_timeout_time_ms(10000));
-    }
-
-    INFO_printf("mqtt client exiting\n");
-    return 0;
-}
-
 // Função para ler o valor do LDR
 static uint16_t read_ldr_value(void) {
     return adc_read();
@@ -489,4 +385,108 @@ static void dns_found(const char *hostname, const ip_addr_t *ipaddr, void *arg) 
     } else {
         panic("dns request failed");
     }
+}
+
+int main(void) {
+    // Inicializa todos os tipos de bibliotecas stdio padrão presentes que estão ligados ao binário.
+    stdio_init_all();
+    INFO_printf("MQTT LDR Smart Lamp client starting\n");
+
+    // Configuração do botão B para modo BOOTSEL
+    gpio_init(BUTTON_B);
+    gpio_set_dir(BUTTON_B, GPIO_IN);
+    gpio_pull_up(BUTTON_B);
+    gpio_set_irq_enabled_with_callback(BUTTON_B, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
+
+    // Inicializa o pino do LED físico
+    gpio_init(LED_PIN);
+    gpio_set_dir(LED_PIN, GPIO_OUT);
+    gpio_put(LED_PIN, 0); // Inicia desligado
+
+    // Inicializa o conversor ADC para o LDR
+    adc_init();
+    adc_gpio_init(LDR_ADC_PIN);
+    adc_select_input(ADC_INPUT_CHANNEL);
+
+    // Cria registro com os dados do cliente
+    static MQTT_CLIENT_DATA_T state;
+    state.manual_led_control = false;
+    state.led_state = false;
+
+    // Inicializa a arquitetura do cyw43
+    if (cyw43_arch_init()) {
+        panic("Failed to inizialize CYW43");
+    }
+
+    // Usa identificador único da placa
+    char unique_id_buf[5];
+    pico_get_unique_board_id_string(unique_id_buf, sizeof(unique_id_buf));
+    for(int i=0; i < sizeof(unique_id_buf) - 1; i++) {
+        unique_id_buf[i] = tolower(unique_id_buf[i]);
+    }
+
+    // Gera nome único, Ex: pico1234
+    char client_id_buf[sizeof(MQTT_DEVICE_NAME) + sizeof(unique_id_buf) - 1];
+    memcpy(&client_id_buf[0], MQTT_DEVICE_NAME, sizeof(MQTT_DEVICE_NAME) - 1);
+    memcpy(&client_id_buf[sizeof(MQTT_DEVICE_NAME) - 1], unique_id_buf, sizeof(unique_id_buf) - 1);
+    client_id_buf[sizeof(client_id_buf) - 1] = 0;
+    INFO_printf("Device name %s\n", client_id_buf);
+
+    state.mqtt_client_info.client_id = client_id_buf;
+    state.mqtt_client_info.keep_alive = MQTT_KEEP_ALIVE_S;
+#if defined(MQTT_USERNAME) && defined(MQTT_PASSWORD)
+    state.mqtt_client_info.client_user = MQTT_USERNAME;
+    state.mqtt_client_info.client_pass = MQTT_PASSWORD;
+#else
+    state.mqtt_client_info.client_user = NULL;
+    state.mqtt_client_info.client_pass = NULL;
+#endif
+    static char will_topic[MQTT_TOPIC_LEN];
+    strncpy(will_topic, full_topic(&state, MQTT_WILL_TOPIC), sizeof(will_topic));
+    state.mqtt_client_info.will_topic = will_topic;
+    state.mqtt_client_info.will_msg = MQTT_WILL_MSG;
+    state.mqtt_client_info.will_qos = MQTT_WILL_QOS;
+    state.mqtt_client_info.will_retain = true;
+
+#if LWIP_ALTCP && LWIP_ALTCP_TLS
+    // TLS enabled
+#ifdef MQTT_CERT_INC
+    static const uint8_t ca_cert[] = TLS_ROOT_CERT;
+    static const uint8_t client_key[] = TLS_CLIENT_KEY;
+    static const uint8_t client_cert[] = TLS_CLIENT_CERT;
+    state.mqtt_client_info.tls_config = altcp_tls_create_config_client_2wayauth(ca_cert, sizeof(ca_cert),
+            client_key, sizeof(client_key), NULL, 0, client_cert, sizeof(client_cert));
+#else
+    state.mqtt_client_info.tls_config = altcp_tls_create_config_client(NULL, 0);
+    WARN_printf("Warning: tls without a certificate is insecure\n");
+#endif
+#endif
+
+    // Conectar à rede WiFI
+    cyw43_arch_enable_sta_mode();
+    if (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK, 30000)) {
+        panic("Failed to connect");
+    }
+    INFO_printf("\nConnected to Wifi\n");
+
+    //Faz um pedido de DNS para o endereço IP do servidor MQTT
+    cyw43_arch_lwip_begin();
+    int err = dns_gethostbyname(MQTT_SERVER, &state.mqtt_server_address, dns_found, &state);
+    cyw43_arch_lwip_end();
+
+    // Se tiver o endereço, inicia o cliente
+    if (err == ERR_OK) {
+        start_client(&state);
+    } else if (err != ERR_INPROGRESS) {
+        panic("dns request failed");
+    }
+
+    // Loop condicionado a conexão mqtt
+    while (!state.connect_done || mqtt_client_is_connected(state.mqtt_client_inst)) {
+        cyw43_arch_poll();
+        cyw43_arch_wait_for_work_until(make_timeout_time_ms(10000));
+    }
+
+    INFO_printf("mqtt client exiting\n");
+    return 0;
 }
