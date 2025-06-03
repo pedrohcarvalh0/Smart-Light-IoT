@@ -5,18 +5,18 @@
  * e pode ser controlada remotamente via MQTT
  */
 
-#include "pico/stdlib.h"            // Biblioteca da Raspberry Pi Pico para funções padrão (GPIO, temporização, etc.)
-#include "pico/cyw43_arch.h"        // Biblioteca para arquitetura Wi-Fi da Pico com CYW43
-#include "pico/unique_id.h"         // Biblioteca com recursos para trabalhar com os pinos GPIO do Raspberry Pi Pico
+#include "pico/stdlib.h"                // Biblioteca da Raspberry Pi Pico para funções padrão (GPIO, temporização, etc.)
+#include "pico/cyw43_arch.h"            // Biblioteca para arquitetura Wi-Fi da Pico com CYW43
+#include "pico/unique_id.h"             // Biblioteca com recursos para trabalhar com os pinos GPIO do Raspberry Pi Pico
 
-#include "hardware/gpio.h"          // Biblioteca de hardware de GPIO
-#include "hardware/irq.h"           // Biblioteca de hardware de interrupções
-#include "hardware/adc.h"           // Biblioteca de hardware para conversão ADC
+#include "hardware/gpio.h"              // Biblioteca de hardware de GPIO
+#include "hardware/irq.h"               // Biblioteca de hardware de interrupções
+#include "hardware/adc.h"               // Biblioteca de hardware para conversão ADC
 
-#include "lwip/apps/mqtt.h"         // Biblioteca LWIP MQTT -  fornece funções e recursos para conexão MQTT
-#include "lwip/apps/mqtt_priv.h"    // Biblioteca que fornece funções e recursos para Geração de Conexões
-#include "lwip/dns.h"               // Biblioteca que fornece funções e recursos suporte DNS:
-#include "lwip/altcp_tls.h"         // Biblioteca que fornece funções e recursos para conexões seguras usando TLS:
+#include "lwip/apps/mqtt.h"             // Biblioteca LWIP MQTT -  fornece funções e recursos para conexão MQTT
+#include "lwip/apps/mqtt_priv.h"        // Biblioteca que fornece funções e recursos para Geração de Conexões
+#include "lwip/dns.h"                   // Biblioteca que fornece funções e recursos suporte DNS:
+#include "lwip/altcp_tls.h"             // Biblioteca que fornece funções e recursos para conexões seguras usando TLS:
 #include "pico/bootrom.h"
 
 #define WIFI_SSID "KASATECH CARVALHO"   // Substitua pelo nome da sua rede Wi-Fi
